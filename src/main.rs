@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod ui;
 
+use std::env;
 use std::io;
 use std::sync::mpsc;
 use std::thread;
@@ -19,6 +20,10 @@ use api::{ApiRequest, ApiResponse};
 use app::StatusKind;
 
 fn main() -> io::Result<()> {
+    // Parse args
+    let args: Vec<String> = env::args().collect();
+    let high_contrast = args.iter().any(|a| a == "-hc");
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -27,7 +32,7 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app
-    let mut app = App::new();
+    let mut app = App::new(high_contrast);
 
     // API communication channels
     let (req_tx, req_rx) = mpsc::channel::<ApiRequest>();

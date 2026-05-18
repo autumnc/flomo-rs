@@ -1,0 +1,5 @@
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+
+[env]
+CC_armv7_unknown_linux_musleabihf = "arm-linux-gnueabihf-gcc"

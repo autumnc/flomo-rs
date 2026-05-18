@@ -54,9 +54,9 @@ pub const OBSIDIAN: Palette = Palette {
     red: Color::Rgb(250, 90, 90),
     magenta: Color::Rgb(185, 125, 250),
     orange: Color::Rgb(250, 155, 60),
-    dim: Color::Rgb(65, 65, 65),
-    border: Color::Rgb(35, 35, 35),
-    dark_blue: Color::Rgb(10, 10, 18),
+    dim: Color::Rgb(110, 110, 110),
+    border: Color::Rgb(55, 55, 55),
+    dark_blue: Color::Rgb(20, 20, 40),
 };
 
 /// Convert a display-column position to a byte offset within the string.
@@ -168,7 +168,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(high_contrast: bool) -> Self {
         let today = Local::now().date_naive();
         let has_token = api::load_token();
         let need_login = has_token.is_none();
@@ -207,7 +207,7 @@ impl App {
             is_loading: has_token.is_some(),
             needs_sync: has_token.is_some(),
             detail_visible_height: 0,
-            theme_dark: false,
+            theme_dark: high_contrast,
         }
     }
 

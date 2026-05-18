@@ -282,7 +282,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
             .track_symbol(None)
             .begin_symbol(None)
             .end_symbol(None)
-            .style(Style::default().fg(palette.dim));
+            .style(Style::default().fg(palette.subtext));
         let mut sb_state = ScrollbarState::new(total_items).position(app.sidebar_index);
         f.render_stateful_widget(scrollbar, inner, &mut sb_state);
     }
@@ -411,7 +411,7 @@ fn draw_detail_panel(f: &mut Frame, app: &mut App, area: Rect, palette: &Palette
             .track_symbol(None)
             .begin_symbol(None)
             .end_symbol(None)
-            .style(Style::default().fg(palette.dim));
+            .style(Style::default().fg(palette.subtext));
         f.render_stateful_widget(
             scrollbar,
             inner,
@@ -604,14 +604,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
         ("s", "同步"),
         ("/", "搜索"),
         ("t", "标签"),
-        ("T", "主题"),
         ("D", "日期"),
         ("q", "退出"),
     ];
 
     for (i, (key, desc)) in shortcuts.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled("│", Style::default().fg(palette.dark_blue)));
+            spans.push(Span::styled("│", Style::default().fg(palette.border)));
         }
         spans.push(Span::styled(
             format!(" {} ", key),
@@ -619,7 +618,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
         ));
         spans.push(Span::styled(
             format!("{} ", desc),
-            Style::default().fg(palette.dim),
+            Style::default().fg(palette.subtext),
         ));
     }
 
