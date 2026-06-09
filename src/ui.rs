@@ -282,7 +282,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
             .track_symbol(None)
             .begin_symbol(None)
             .end_symbol(None)
-            .style(Style::default().fg(palette.subtext));
+            .style(Style::default().fg(palette.subtext).bg(palette.bg));
         let mut sb_state = ScrollbarState::new(total_items).position(app.sidebar_index);
         f.render_stateful_widget(scrollbar, inner, &mut sb_state);
     }
@@ -411,7 +411,7 @@ fn draw_detail_panel(f: &mut Frame, app: &mut App, area: Rect, palette: &Palette
             .track_symbol(None)
             .begin_symbol(None)
             .end_symbol(None)
-            .style(Style::default().fg(palette.subtext));
+            .style(Style::default().fg(palette.subtext).bg(palette.bg));
         f.render_stateful_widget(
             scrollbar,
             inner,

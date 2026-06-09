@@ -437,6 +437,7 @@ pub enum ApiResponse {
     MemoUpdated(Memo),
     MemoDeleted,
     TagTreeLoaded(Vec<TagInfo>),
+    SyncFailed(String),
     Error(String),
 }
 
@@ -466,7 +467,7 @@ pub async fn process_request(req: ApiRequest, _client: &Client, token: &str) -> 
             let fc = FlomoClient::new(token);
             match fc.list_memos().await {
                 Ok(memos) => ApiResponse::MemosLoaded(memos),
-                Err(e) => ApiResponse::Error(format!("同步失败: {}", e)),
+                Err(e) => ApiResponse::SyncFailed(format!("同步失败: {}", e)),
             }
         }
         ApiRequest::CreateMemo { content } => {

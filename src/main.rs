@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod db;
 mod ui;
 
 use std::env;

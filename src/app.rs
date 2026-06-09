@@ -42,7 +42,7 @@ pub const TOKYO_NIGHT: Palette = Palette {
 };
 
 pub const OBSIDIAN: Palette = Palette {
-    bg: Color::Rgb(0, 0, 0),
+    bg: Color::Rgb(16, 16, 16),
     surface: Color::Rgb(8, 8, 8),
     overlay: Color::Rgb(15, 15, 15),
     text: Color::Rgb(220, 220, 220),
@@ -75,6 +75,7 @@ fn col_to_byte_offset(s: &str, col: usize) -> usize {
 }
 
 use crate::api::{self, ApiRequest, ApiResponse, Memo, TagInfo};
+use crate::db;
 
 // ─── App Modes ────────────────────────────────────────────────────────────
 
@@ -158,6 +159,7 @@ pub struct App {
     // Status
     pub status_msg: Option<(String, StatusKind)>,
     pub is_loading: bool,
+    pub is_offline: bool,
     pub needs_sync: bool,
 
     // Detail panel visible height (set during draw)
@@ -173,13 +175,45 @@ impl App {
         let has_token = api::load_token();
         let need_login = has_token.is_none();
 
+        // Load local memos immediately so the UI isn't empty on startup
+        let (memos, all_tags, cal_has_memos, filtered_indices) =
+            if let Some(local) = db::load_memos() {
+                let mut tag_counts: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for m in &local {
+                    for t in &m.tags {
+                        *tag_counts.entry(t.clone()).or_insert(0) += 1;
+                    }
+                }
+                let mut tags: Vec<TagInfo> = tag_counts
+                    .into_iter()
+                    .map(|(name, count)| TagInfo { name, count })
+                    .collect();
+                tags.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+
+                let mut dates = std::collections::HashSet::new();
+                for m in &local {
+                    if let Some(d) = m.created_date() {
+                        dates.insert(d.format("%Y-%m-%d").to_string());
+                    }
+                }
+
+                let indices: Vec<usize> = (0..local.len()).collect();
+                (local, tags, dates, indices)
+            } else {
+                (Vec::new(), Vec::new(), std::collections::HashSet::new(), Vec::new())
+            };
+
+        let has_local = !memos.is_empty();
+        let local_count = memos.len();
+
         App {
             mode: if need_login { Mode::Login } else { Mode::Normal },
             focus: Focus::Sidebar,
             should_quit: false,
-            memos: Vec::new(),
-            filtered_indices: Vec::new(),
-            all_tags: Vec::new(),
+            memos,
+            filtered_indices,
+            all_tags,
             sidebar_index: 0,
             sidebar_scroll: 0,
             main_scroll: 0,
@@ -193,7 +227,7 @@ impl App {
             cal_year: today.year(),
             cal_month: today.month(),
             cal_cursor: today,
-            cal_has_memos: std::collections::HashSet::new(),
+            cal_has_memos,
             tag_index: 0,
             tag_scroll: 0,
             filter_tag: None,
@@ -203,8 +237,15 @@ impl App {
             login_step: 0,
             login_error: None,
             token: has_token.clone(),
-            status_msg: None,
+            status_msg: if has_local && has_token.is_some() {
+                Some((format!("已加载 {} 条本地笔记，正在后台同步...", local_count), StatusKind::Info))
+            } else if has_local {
+                Some((format!("离线模式 - 已加载 {} 条本地笔记", local_count), StatusKind::Info))
+            } else {
+                None
+            },
             is_loading: has_token.is_some(),
+            is_offline: true,
             needs_sync: has_token.is_some(),
             detail_visible_height: 0,
             theme_dark: high_contrast,
@@ -304,6 +345,8 @@ impl App {
                 self.build_tags_from_memos();
                 self.apply_filters();
                 self.is_loading = false;
+                self.is_offline = false;
+                db::save_memos(&self.memos);
                 if count > 0 {
                     self.set_status(&format!("已同步 {} 条笔记", count), StatusKind::Success);
                 }
@@ -314,6 +357,7 @@ impl App {
                 self.build_tags_from_memos();
                 self.apply_filters();
                 self.sidebar_index = 0;
+                db::save_memos(&self.memos);
                 self.set_status("笔记已创建", StatusKind::Success);
             }
             ApiResponse::MemoUpdated(memo) => {
@@ -322,6 +366,7 @@ impl App {
                 }
                 self.build_tags_from_memos();
                 self.apply_filters();
+                db::save_memos(&self.memos);
                 self.set_status("笔记已保存", StatusKind::Success);
             }
             ApiResponse::MemoDeleted => {
@@ -334,11 +379,39 @@ impl App {
                     self.build_tags_from_memos();
                     self.apply_filters();
                 }
+                db::save_memos(&self.memos);
                 self.set_status("笔记已删除", StatusKind::Success);
             }
             ApiResponse::TagTreeLoaded(tags) => {
                 if !tags.is_empty() {
                     self.all_tags = tags;
+                }
+            }
+            ApiResponse::SyncFailed(_msg) => {
+                if !self.memos.is_empty() {
+                    // Keep local data, just mark offline
+                    let count = self.memos.len();
+                    self.is_loading = false;
+                    self.is_offline = true;
+                    self.set_status(
+                        &format!("离线模式 - 已加载 {} 条本地笔记", count),
+                        StatusKind::Info,
+                    );
+                } else if let Some(local_memos) = db::load_memos() {
+                    let count = local_memos.len();
+                    self.memos = local_memos;
+                    self.rebuild_calendar_memo_dates();
+                    self.build_tags_from_memos();
+                    self.apply_filters();
+                    self.is_loading = false;
+                    self.is_offline = true;
+                    self.set_status(
+                        &format!("离线模式 - 已加载 {} 条本地笔记", count),
+                        StatusKind::Info,
+                    );
+                } else {
+                    self.set_status(&format!("{}，无本地缓存", _msg), StatusKind::Error);
+                    self.is_loading = false;
                 }
             }
             ApiResponse::Error(msg) => {
