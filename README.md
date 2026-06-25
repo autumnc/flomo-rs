@@ -1,85 +1,79 @@
 # flomo-rs
 
-flomo 笔记服务的终端 TUI 客户端，使用 Rust 编写。
-
-## 功能
-
-- 浏览、新建、编辑、删除 flomo 笔记
-- 按标签、日期、关键词搜索和筛选
-- 日历视图选择日期范围
-- 离线优先：本地 JSON 缓存，断网也能查看已有笔记
-- 双主题：TokyoNight（默认）和 Obsidian（高对比度）
-- 正确处理 CJK 字符宽度
+flomo 笔记服务的终端客户端，支持 TUI 交互界面和非交互式 CLI 命令，使用 Rust 编写。
 
 ## 安装
 
 ```bash
-cargo build --release
-```
+# 从源码安装
+cargo install --git https://github.com/autumnc/flomo-rs.git
 
-二进制文件在 `target/release/flomo-rs`。
+# 或下载预编译二进制
+# https://github.com/autumnc/flomo-rs/releases
+```
 
 ## 使用
 
-```bash
-# 默认 TokyoNight 主题
-flomo-rs
+### TUI 交互模式
 
-# Obsidian 高对比度主题
-flomo-rs -hc
+```bash
+flomo-rs          # 默认 TokyoNight 主题
+flomo-rs -hc      # Obsidian 高对比度主题
 ```
 
-首次启动进入登录页，输入 flomo 账号邮箱和密码。登录后 token 保存在 `~/.flomo-cli/token.json`，后续启动自动登录并同步。
+首次启动进入登录页。Token 保存在 `~/.flomo-cli/token.json`，后续自动登录并同步。
 
-## 快捷键
+### CLI 非交互模式
 
-### 全局
+支持脚本和管道使用，`--json` 输出结构化数据。管道时自动启用 JSON。
+
+```bash
+flomo-rs login --email E --password P
+flomo-rs logout
+flomo-rs status
+flomo-rs list --limit 10 --json
+flomo-rs get <slug>
+flomo-rs new "内容"             # 命令行参数
+flomo-rs new -f file.txt         # 从文件读取
+echo "note" | flomo-rs new       # 从 stdin 管道
+flomo-rs edit <slug> "新内容"
+flomo-rs delete <slug> -y
+flomo-rs search "关键词" --tag 标签
+flomo-rs tags
+flomo-rs review                  # 回顾往年今日
+```
+
+全局选项：
+
+| 选项 | 说明 |
+|------|------|
+| `--token TOKEN` | 指定 token（优先于缓存和 `FLOMO_TOKEN` 环境变量） |
+| `--json` | 全局 JSON 输出 |
+| `--version` / `-V` | 显示版本 |
+| `--help` / `-h` | 帮助 |
+
+Token 优先级：`--token` > `FLOMO_TOKEN` 环境变量 > `~/.flomo-cli/token.json`
+
+## TUI 快捷键
 
 | 按键 | 功能 |
 |------|------|
-| `n` | 新建笔记 |
-| `e` | 编辑当前笔记 |
-| `d` | 删除当前笔记 |
-| `s` | 手动同步 |
+| `n` / `e` / `d` | 新建 / 编辑 / 删除笔记 |
+| `j` `k` `↑` `↓` | 列表移动 |
 | `/` | 搜索 |
-| `t` | 标签筛选 |
-| `D` | 日期筛选（日历） |
+| `t` / `D` | 标签筛选 / 日期日历 |
+| `s` | 手动同步 |
 | `T` | 切换主题 |
+| `Esc` | 清除筛选 |
+| `Ctrl+s` | 编辑模式保存 |
 | `q` | 退出 |
-| `Esc` | 清除筛选 / 返回 |
-
-### 列表浏览
-
-| 按键 | 功能 |
-|------|------|
-| `j` / `k` / `↑` / `↓` | 上下移动 |
-| `g` | 跳到顶部 |
-| `G` | 跳到底部 |
-| `h` / `l` / `←` / `→` | 切换侧边栏 / 详情焦点 |
-| `J` / `K` | 详情区逐行滚动 |
-| `PageUp` / `PageDown` | 详情区翻页 |
-
-### 编辑模式
-
-| 按键 | 功能 |
-|------|------|
-| `Ctrl+s` | 保存 |
-| `Esc` | 取消 |
-
-### 日历
-
-| 按键 | 功能 |
-|------|------|
-| `←` `→` `↑` `↓` | 移动日期 |
-| `Ctrl+←` `Ctrl+→` | 切换月份 |
-| `Ctrl+↑` `Ctrl+↓` | 切换年份 |
-| `Enter` | 确认筛选 |
-| `Esc` | 取消 |
 
 ## 数据存储
 
 - `~/.flomo-cli/token.json` — 登录 token
 - `~/.flomo-cli/memos.json` — 本地笔记缓存
+
+离线时自动使用本地缓存，联网后支持手动同步。
 
 ## 技术栈
 
