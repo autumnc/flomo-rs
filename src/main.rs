@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod cli;
 mod db;
 mod ui;
 
@@ -21,9 +22,24 @@ use api::{ApiRequest, ApiResponse};
 use app::StatusKind;
 
 fn main() -> io::Result<()> {
-    // Parse args
-    let args: Vec<String> = env::args().collect();
-    let high_contrast = args.iter().any(|a| a == "-hc");
+    // Parse CLI args — route to non-interactive mode if a command is given
+    let cli_args = cli::parse_args();
+
+    if cli_args.version {
+        println!("flomo-rs v{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if let Some(cmd) = cli_args.command {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(cli::run_command(cmd, cli_args.token));
+        return Ok(());
+    }
+
+    let high_contrast = cli_args.high_contrast;
 
     // Setup terminal
     enable_raw_mode()?;

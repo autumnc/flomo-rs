@@ -335,7 +335,7 @@ impl Memo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TagInfo {
     pub name: String,
     pub count: usize,
