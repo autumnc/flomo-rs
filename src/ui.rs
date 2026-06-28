@@ -3,6 +3,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
+    symbols,
     text::{Line, Span, Text},
     widgets::{
         Block, Borders, Clear, Paragraph, Scrollbar,
@@ -71,8 +72,14 @@ fn draw_main(f: &mut Frame, app: &mut App, size: Rect, palette: &Palette) {
     .split(size);
 
     draw_search_bar(f, app, chunks[0], palette);
-    draw_body(f, app, chunks[1], palette);
+    let sep_x = draw_body(f, app, chunks[1], palette);
     draw_footer(f, app, chunks[2], palette);
+
+    // Draw vertical separator from top through body (stop before footer)
+    let sep_style = Style::default().fg(palette.border).bg(palette.bg);
+    for y in size.top()..chunks[2].y {
+        f.buffer_mut().set_string(sep_x, y, "┃", sep_style);
+    }
 
     // Popups
     match app.mode {
@@ -143,41 +150,37 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
 
 // ─── Body (Sidebar + Main) ────────────────────────────────────────────────
 
-fn draw_body(f: &mut Frame, app: &mut App, area: Rect, palette: &Palette) {
+fn draw_body(f: &mut Frame, app: &mut App, area: Rect, palette: &Palette) -> u16 {
     let chunks = Layout::horizontal([Constraint::Percentage(40), Constraint::Min(0)])
         .split(area);
 
     draw_sidebar(f, app, chunks[0], palette);
 
-    // Offset detail panel 1 column right so separator doesn't overlap its content
     let detail_area = Rect::new(
-        chunks[0].right() + 1,
+        chunks[0].right(),
         area.y,
-        area.right().saturating_sub(chunks[0].right() + 1),
+        area.right().saturating_sub(chunks[0].right()),
         area.height,
     );
     draw_main_panel(f, app, detail_area, palette);
 
-    // Draw vertical separator line between sidebar and detail
-    let sep_x = chunks[0].right();
-    for y in area.top()..area.bottom() {
-        f.buffer_mut().set_string(
-            sep_x,
-            y,
-            "│",
-            Style::default().fg(palette.border),
-        );
-    }
+    chunks[0].right() - 1
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────
 
 fn draw_sidebar(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
     let title = format!(" 笔记 ({}) ", app.filtered_indices.len());
+    let border_set = symbols::border::Set {
+        vertical_right: "┃",
+        ..symbols::border::PLAIN
+    };
     let block = Block::default()
         .title(title)
         .title_style(Style::default().fg(palette.blue).add_modifier(Modifier::BOLD))
         .style(base_style(palette))
+        .borders(Borders::RIGHT)
+        .border_set(border_set)
         .border_style(Style::default().fg(palette.border));
 
     let inner = block.inner(area);
@@ -610,7 +613,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
 
     for (i, (key, desc)) in shortcuts.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled("│", Style::default().fg(palette.border)));
+            spans.push(Span::styled("┃", Style::default().fg(palette.border)));
         }
         spans.push(Span::styled(
             format!(" {} ", key),
