@@ -151,7 +151,7 @@ fn draw_search_bar(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
 // ─── Body (Sidebar + Main) ────────────────────────────────────────────────
 
 fn draw_body(f: &mut Frame, app: &mut App, area: Rect, palette: &Palette) -> u16 {
-    let chunks = Layout::horizontal([Constraint::Percentage(40), Constraint::Min(0)])
+    let chunks = Layout::horizontal([Constraint::Percentage(32), Constraint::Min(0)])
         .split(area);
 
     draw_sidebar(f, app, chunks[0], palette);
@@ -598,7 +598,7 @@ fn draw_edit_panel(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
 // ─── Footer ───────────────────────────────────────────────────────────────
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
-    let mut spans = vec![Span::styled(" ", Style::default())];
+    let mut spans: Vec<Span> = Vec::new();
 
     let shortcuts = [
         ("n", "新建"),
@@ -616,20 +616,19 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect, palette: &Palette) {
             spans.push(Span::styled("┃", Style::default().fg(palette.border)));
         }
         spans.push(Span::styled(
-            format!(" {} ", key),
+            format!("{}", key),
             Style::default().fg(palette.orange).add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::styled(
-            format!("{} ", desc),
+            desc.to_string(),
             Style::default().fg(palette.subtext),
         ));
     }
 
-    // Status message
     if let Some((ref msg, ref kind)) = app.status_msg {
-        spans.push(Span::styled("  ", Style::default()));
+        spans.push(Span::styled("┃", Style::default().fg(palette.border)));
         spans.push(Span::styled(
-            format!(" {}", msg),
+            msg.as_str(),
             Style::default().fg(match kind {
                 StatusKind::Success => palette.green,
                 StatusKind::Error => palette.red,

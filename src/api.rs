@@ -14,7 +14,6 @@ const APP_VERSION: &str = "4.0";
 const PLATFORM: &str = "web";
 const SIGN_SECRET: &str = "dbbc3dd73364b4084c3a69346e0ce2b2";
 const TIMEZONE: &str = "8:0";
-const MAX_PAGE_SIZE: i32 = 200;
 
 fn config_dir() -> PathBuf {
     dirs::home_dir()
@@ -32,7 +31,10 @@ pub fn load_token() -> Option<String> {
         return None;
     }
     let data: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
-    data.get("access_token").and_then(|v| v.as_str()).map(|s| s.to_string())
+    data.get("access_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn save_token_to_file(data: &Value) {
@@ -102,9 +104,10 @@ impl FlomoClient {
     pub fn new(token: &str) -> Self {
         Self {
             client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
-                .unwrap_or_default(),
+                .expect("Failed to build HTTP client"),
             token: token.to_string(),
         }
     }
@@ -183,46 +186,22 @@ impl FlomoClient {
     }
 
     pub async fn list_memos(&self) -> Result<Vec<Memo>, String> {
-        let mut all_memos: Vec<Memo> = Vec::new();
-        let mut latest_updated_at: i64 = 0;
-        let mut latest_slug = String::new();
-
-        loop {
-            let mut extra = HashMap::new();
-            extra.insert("limit".into(), MAX_PAGE_SIZE.to_string());
-            extra.insert("latest_updated_at".into(), latest_updated_at.to_string());
-            extra.insert("tz".into(), TIMEZONE.into());
-            if !latest_slug.is_empty() {
-                extra.insert("latest_slug".into(), latest_slug.clone());
-            }
-
-            let result = self.get("memo/updated/", Some(extra)).await?;
-            let memos_json: Value = match result {
-                Value::Array(_) => result,
-                Value::Object(obj) => obj.get("data").cloned().unwrap_or(Value::Array(vec![])),
-                _ => Value::Array(vec![]),
-            };
-
-            let page: Vec<Memo> = serde_json::from_value(memos_json).unwrap_or_default();
-            let page: Vec<Memo> = page.into_iter().filter(|m| m.deleted_at.is_none()).collect();
-
-            if page.is_empty() {
-                break;
-            }
-
-            if let Some(last) = page.last() {
-                latest_slug = last.slug.clone();
-                if let Ok(dt) = NaiveDateTime::parse_from_str(&last.updated_at, "%Y-%m-%d %H:%M:%S") {
-                    latest_updated_at = dt.and_utc().timestamp();
-                } else {
-                    break;
-                }
-            }
-            all_memos.extend(page);
-        }
-
-        all_memos.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        Ok(all_memos)
+        let result = self.get("memo/latest_updated_desc", None).await?;
+        let memos_json = match &result {
+            Value::Array(_) => result.clone(),
+            Value::Object(obj) => obj.get("data").cloned().unwrap_or(Value::Array(vec![])),
+            _ => Value::Array(vec![]),
+        };
+        let memos: Vec<Memo> = serde_json::from_value(memos_json.clone())
+            .map_err(|e| {
+                // Dump raw response to file for debugging
+                let raw = serde_json::to_string_pretty(&memos_json).unwrap_or_default();
+                let path = config_dir().join("debug_response.json");
+                let _ = std::fs::write(&path, &raw);
+                let snippet: String = raw.chars().take(300).collect();
+                format!("解析笔记数据失败: {} | 原始数据已写入 {:?}，前300字符: {}", e, path, snippet)
+            })?;
+        Ok(memos.into_iter().filter(|m| m.deleted_at.is_none()).collect())
     }
 
     pub async fn create_memo(&self, content: &str) -> Result<Memo, String> {
@@ -275,16 +254,23 @@ async fn handle_response(resp: reqwest::Response) -> Result<Value, String> {
 
 // ─── Data Types ───────────────────────────────────────────────────────────
 
+fn deser_null_as_empty<'de, D>(d: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(d).map(|s| s.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memo {
     pub slug: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deser_null_as_empty")]
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deser_null_as_empty")]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deser_null_as_empty")]
     pub updated_at: String,
     #[serde(default)]
     pub deleted_at: Option<String>,
@@ -372,41 +358,113 @@ fn collect_tags(arr: &[Value], out: &mut Vec<TagInfo>) {
 // ─── HTML Helpers ─────────────────────────────────────────────────────────
 
 pub fn html_to_text(html: &str) -> String {
-    // First convert HTML line-break tags to newlines BEFORE stripping tags
-    let text = html
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<br />", "\n")
-        .replace("</p>", "\n");
-    // Then strip remaining HTML tags
-    let re = Regex::new(r"<[^>]+>").unwrap();
-    let text = re.replace_all(&text, "");
-    text.replace("&nbsp;", " ")
+    let mut text = html.to_string();
+
+    // Line breaks
+    text = text.replace("<br/>", "\n").replace("<br />", "\n").replace("<br>", "\n");
+    text = text.replace("</p>", "\n");
+
+    // Lists
+    text = text.replace("<li>", "\n - ").replace("</li>", "");
+
+    // Bold
+    text = text.replace("<strong>", "**").replace("</strong>", "**");
+    text = text.replace("<b>", "**").replace("</b>", "**");
+
+
+    // Underline
+    text = text.replace("<u>", "__").replace("</u>", "__");
+
+    // Highlight
+    text = text.replace("<mark>", "==").replace("</mark>", "==");
+
+    // Strip remaining HTML tags (single regex, compiled lazily once)
+    static TAG_RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
+    text = TAG_RE.replace_all(&text, "").to_string();
+
+    // Entities
+    text = text.replace("&nbsp;", " ")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&amp;", "&")
-        .split('\n')
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'");
+
+    // Collapse multiple blank lines and trim each line
+    text = text.lines()
         .map(|l| l.trim().to_string())
         .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
+        .join("\n");
+    // Remove 3+ consecutive newlines
+    static NL_RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
+    NL_RE.replace_all(&text, "\n\n").trim().to_string()
 }
 
 pub fn text_to_html(text: &str) -> String {
     if text.starts_with('<') {
         return text.to_string();
     }
-    text.split('\n')
-        .map(|line| {
-            if line.trim().is_empty() {
-                "<p><br></p>".to_string()
-            } else {
-                format!("<p>{}</p>", line)
+
+    // Pre-compiled inline patterns
+    static BOLD_RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"\*\*(.+?)\*\*").unwrap());
+    static UNDERLINE_RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"__(.+?)__").unwrap());
+    static HIGHLIGHT_RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"==(.+?)==").unwrap());
+
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut result = String::new();
+    let mut in_list = false;
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i].trim();
+
+        // Look ahead to group consecutive list items
+        let is_li = line.starts_with("- ") || line.starts_with("* ");
+
+        if is_li {
+            if !in_list {
+                result.push_str("<ul>");
+                in_list = true;
             }
-        })
-        .collect::<Vec<_>>()
-        .join("")
+            let content = &line[2..]; // strip "- " or "* "
+            let content = apply_inline(&BOLD_RE, &UNDERLINE_RE, &HIGHLIGHT_RE, content);
+            result.push_str(&format!("<li>{}</li>", content));
+        } else {
+            if in_list {
+                result.push_str("</ul>");
+                in_list = false;
+            }
+            if line.is_empty() {
+                result.push_str("<p><br></p>");
+            } else {
+                let content = apply_inline(&BOLD_RE, &UNDERLINE_RE, &HIGHLIGHT_RE, line);
+                result.push_str(&format!("<p>{}</p>", content));
+            }
+        }
+        i += 1;
+    }
+
+    if in_list {
+        result.push_str("</ul>");
+    }
+
+    result
+}
+
+fn apply_inline(
+    bold: &Regex,
+    underline: &Regex,
+    highlight: &Regex,
+    text: &str,
+) -> String {
+    let text = bold.replace_all(text, r"<strong>$1</strong>").to_string();
+    let text = underline.replace_all(&text, r"<u>$1</u>").to_string();
+    highlight.replace_all(&text, r"<mark>$1</mark>").to_string()
 }
 
 pub fn extract_tags(text: &str) -> Vec<String> {

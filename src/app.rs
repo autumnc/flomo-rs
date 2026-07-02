@@ -349,6 +349,8 @@ impl App {
                 db::save_memos(&self.memos);
                 if count > 0 {
                     self.set_status(&format!("已同步 {} 条笔记", count), StatusKind::Success);
+                } else {
+                    self.set_status("已连接，暂无笔记", StatusKind::Info);
                 }
             }
             ApiResponse::MemoCreated(memo) => {
@@ -388,31 +390,33 @@ impl App {
                 }
             }
             ApiResponse::SyncFailed(_msg) => {
-                if !self.memos.is_empty() {
-                    // Keep local data, just mark offline
-                    let count = self.memos.len();
+                if _msg.contains("Token已过期") {
+                    self.token = None;
+                    api::clear_token_file();
+                    self.mode = Mode::Login;
                     self.is_loading = false;
-                    self.is_offline = true;
-                    self.set_status(
-                        &format!("离线模式 - 已加载 {} 条本地笔记", count),
-                        StatusKind::Info,
-                    );
-                } else if let Some(local_memos) = db::load_memos() {
-                    let count = local_memos.len();
-                    self.memos = local_memos;
-                    self.rebuild_calendar_memo_dates();
-                    self.build_tags_from_memos();
-                    self.apply_filters();
-                    self.is_loading = false;
-                    self.is_offline = true;
-                    self.set_status(
-                        &format!("离线模式 - 已加载 {} 条本地笔记", count),
-                        StatusKind::Info,
-                    );
-                } else {
-                    self.set_status(&format!("{}，无本地缓存", _msg), StatusKind::Error);
-                    self.is_loading = false;
+                    self.set_status("登录已过期，请重新登录", StatusKind::Error);
+                    return;
                 }
+                if !self.memos.is_empty() {
+                    self.is_loading = false;
+                    self.is_offline = true;
+                    let count = self.memos.len();
+                    self.set_status(
+                        &format!("离线模式 - 已加载 {} 条本地笔记", count),
+                        StatusKind::Info,
+                    );
+                    return;
+                }
+                // No local data — show error and go to login
+                self.token = None;
+                api::clear_token_file();
+                self.mode = Mode::Login;
+                self.is_loading = false;
+                self.login_email.clear();
+                self.login_password.clear();
+                self.login_step = 0;
+                self.login_error = Some(_msg);
             }
             ApiResponse::Error(msg) => {
                 self.set_status(&msg, StatusKind::Error);
